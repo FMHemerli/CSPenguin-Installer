@@ -1,3 +1,28 @@
+> [!IMPORTANT]
+> **This is a personal fork.** The original project is [parka6060/CSPenguin-Installer](https://github.com/parka6060/CSPenguin-Installer); use it unless you specifically want the change below. Everything else in this README is the upstream documentation, and its `curl` one-liners install the **upstream** version, without this fork's patch.
+
+## Why this fork exists
+
+DXVK 3.0.1 emulates `IDXGIOutput::WaitForVBlank` by sleeping until the estimated next refresh, then finishing with a busy-wait sized for Windows timers (4x the 1 ms timer granularity plus 1/6 of the refresh interval). CLIP STUDIO PAINT calls it in a loop on a dedicated thread, so with the primary monitor at 144 Hz, CSP burned about 74% of a CPU core while idle (about 40% at 60 Hz). The rate that matters is the primary monitor's, not the one CSP's window is on.
+
+This fork ships a patched DXVK 3.0.1 set in `patches/dxvk-3.0.1/`: a patched `dxgi.dll`, plus `d3d11.dll` and `d3d10core.dll` rebuilt with the same toolchain (they must match, since DXVK passes C++ objects between them). Under Wine, `WaitForVBlank` does a single `NtDelayExecution` instead of the busy-wait, because Wine's sleep is select()-based and precise enough. Windows behaviour is unchanged.
+
+Result: idle CSP went from about 75% of a core to about 0.8% (CSP 5.0 and 5.1.5). Pen response felt better in use, but stroke latency itself was not measured.
+
+To get it, clone **this** repository and run the installer from the clone (or `./install.sh --update` on an existing install):
+
+```bash
+git clone https://github.com/FMHemerli/CSPenguin-Installer.git
+cd CSPenguin-Installer
+./install.sh
+```
+
+The installer copies the set into the prefix's `system32` only when DXVK was installed via winetricks, and only after all three DLLs match the SHA-256 hashes pinned in `install.sh`. `./debug.sh` reports whether the patch is active. To rebuild the DLLs, run `patches/dxvk-3.0.1/build.sh` (needs meson, ninja, mingw64-gcc-c++ and glslang; a toolbox works) and update the hashes it prints.
+
+Caveats: this pins D3D11/DXGI to DXVK 3.0.1 even if winetricks installs a newer DXVK (d3d9 and the 32-bit DLLs stay at winetricks' version). Assets the installer downloads still come from the upstream repo, which does not have these DLLs, so running this fork's `install.sh` without a full clone warns and continues without the patch.
+
+---
+
 ![CSP running on Linux](assets/Screenshot_20260318_041049.png)
 
 # video tutorial 👇
@@ -83,7 +108,7 @@ This will migrate any old rules previous versions created and apply the current 
 1. Wine (bundled, portable) at `~/.local/share/cspenguin/wine-<VERSION>/`
 2. Wine prefix at `~/.wine-csp`
 3. Corefonts, vcrun2022, and dotnet48 as runtime dependencies, plus a lightweight CJK font (WenQuanYi Micro Hei) for the asset store and brushes.
-4. DXVK + VKD3D, with a patched DXVK 3.0.1 `dxgi`/`d3d11`/`d3d10core` set that stops CSP from busy-waiting a CPU core in `WaitForVBlank` (see `patches/dxvk-3.0.1/`)
+4. DXVK + VKD3D, with a patched DXVK 3.0.1 `dxgi`/`d3d11`/`d3d10core` set that stops CSP from busy-waiting a CPU core in `WaitForVBlank` (this fork only, see [Why this fork exists](#why-this-fork-exists))
 5. WebView2 Runtime (standalone installer)
 6. Wine Gecko (the MSHTML/IE engine) installed into the prefix, so any IE-based UI renders instead of showing a blank/grey page
 7. dcomp.dll + libwinpthread-1.dll, a DirectComposition shim + dependency so WebView2 panels render correctly
@@ -94,20 +119,6 @@ This will migrate any old rules previous versions created and apply the current 
 12. A wineserver pre-warm service so CSP launches a bit faster
 
 > **Note:** `.clip` file thumbnails need to be **enabled in your file manager's preview settings** — on Dolphin/KDE, open _Configure Dolphin → Interface → Previews_ and tick the "Clip Studio Paint File" entry (after running the installer, restart your file manager).
-
-## Patch notes
-
-### DXVK WaitForVBlank fix (idle CPU)
-
-DXVK 3.0.1 emulates `IDXGIOutput::WaitForVBlank` by sleeping until the estimated next refresh, then finishing with a busy-wait sized for Windows timers (4x the 1 ms timer granularity plus 1/6 of the refresh interval). CLIP STUDIO PAINT calls it in a loop on a dedicated thread, so with the primary monitor at 144 Hz, CSP burned about 74% of a CPU core while idle (about 40% at 60 Hz). The rate that matters is the primary monitor's, not the one CSP's window is on.
-
-The fix ships in `patches/dxvk-3.0.1/`: a patched `dxgi.dll`, plus `d3d11.dll` and `d3d10core.dll` rebuilt with the same toolchain (they must match, since DXVK passes C++ objects between them). Under Wine, `WaitForVBlank` does a single `NtDelayExecution` instead of the busy-wait, because Wine's sleep is select()-based and precise enough. Windows behaviour is unchanged.
-
-Result: idle CSP went from about 75% of a core to about 0.8% (CSP 5.0 and 5.1.5). Pen response felt better in use, but stroke latency itself was not measured.
-
-It is applied by `./install.sh`, `./install.sh --update` and `--update-wine`, which copy the set into the prefix's `system32` only when DXVK was installed via winetricks. `debug.sh` reports whether the patch is active. To rebuild, run `patches/dxvk-3.0.1/build.sh` (needs meson, ninja, mingw64-gcc-c++ and glslang; a toolbox works).
-
-Caveats: this pins D3D11/DXGI to DXVK 3.0.1 even if winetricks installs a newer DXVK (d3d9 and the 32-bit DLLs stay at winetricks' version). The curl one-liner fetches assets from the upstream repo, which does not have these files, so that path warns and continues without the patch; use a clone of this repository to get it.
 
 ## Running wine/winetricks manually
 
