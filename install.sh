@@ -106,6 +106,12 @@ GECKO_VERSION="2.47.4"
 GECKO_URL="https://dl.winehq.org/wine/wine-gecko/${GECKO_VERSION}/wine-gecko-${GECKO_VERSION}-x86_64.msi"
 GECKO_MSI="$DOWNLOAD_DIR/wine-gecko-${GECKO_VERSION}-x86_64.msi"
 GECKO_SHA="e590b7d988a32d6aa4cf1d8aa3aa3d33766fdd4cf4c89c2dcc2095ecb28d066f"
+# patched DXVK 3.0.1 set (patches/dxvk-3.0.1/build.sh prints these); keep in sync with debug.sh
+declare -A DXVK_PATCH_SHA=(
+    [dxgi.dll]="953a876208f9f7f19ac03c74f3e6340268e3688408842fb20aaa8f56801310fe"
+    [d3d11.dll]="f2c5a6501c5e7062f49f07326a61126826926e3aee61aa3e5366df59732e4a02"
+    [d3d10core.dll]="fee235f3b906a29ded386aed8e256c4f4452ef76dbba8f10c92c4f151c8daac0"
+)
 LAUNCHER_DIR="$HOME/.local/share/cspenguin"
 WINE_DIR="$LAUNCHER_DIR/wine-${WINE_VERSION}"
 WINE_BIN="$WINE_DIR/bin/wine"
@@ -910,10 +916,49 @@ _install_dxvk_patch() {
         break
     done
 
+    # stage the whole set next to its target and verify it against the pinned
+    # hashes before touching the prefix; local or downloaded, nothing unverified
+    # ever lands in system32
     mkdir -p "$SYS32"
+    local _sum _failed=0
     for _dll in "${_dlls[@]}"; do
-        cp "$_dxvk_dir/$_dll" "$SYS32/$_dll"
+        cp "$_dxvk_dir/$_dll" "$SYS32/.$_dll.cspenguin-new" || { _failed=1; break; }
+        _sum=$(sha256sum "$SYS32/.$_dll.cspenguin-new" | cut -d' ' -f1)
+        if [[ "$_sum" != "${DXVK_PATCH_SHA[$_dll]}" ]]; then
+            warn "$_dll checksum mismatch (got $_sum)"
+            _failed=1
+            break
+        fi
     done
+    if [[ $_failed -eq 1 ]]; then
+        for _dll in "${_dlls[@]}"; do rm -f "$SYS32/.$_dll.cspenguin-new"; done
+        # drop a bad download so the next run fetches it again
+        [[ "$_dxvk_dir" == "$DOWNLOAD_DIR"/* ]] && rm -rf "$_dxvk_dir"
+        warn "DXVK vblank patch not applied; CSP may use extra CPU while idle"
+        return
+    fi
+
+    # swap in with rename(): a running Wine keeps its mapped copies (cp would
+    # truncate them in place), and on any failure the previous set is restored
+    local _swapped=()
+    for _dll in "${_dlls[@]}"; do
+        [[ -f "$SYS32/$_dll" ]] && { cp -p "$SYS32/$_dll" "$SYS32/.$_dll.cspenguin-old" || _failed=1; }
+    done
+    if [[ $_failed -eq 0 ]]; then
+        for _dll in "${_dlls[@]}"; do
+            mv -f "$SYS32/.$_dll.cspenguin-new" "$SYS32/$_dll" || { _failed=1; break; }
+            _swapped+=("$_dll")
+        done
+    fi
+    if [[ $_failed -eq 1 ]]; then
+        for _dll in "${_swapped[@]}"; do
+            [[ -f "$SYS32/.$_dll.cspenguin-old" ]] && mv -f "$SYS32/.$_dll.cspenguin-old" "$SYS32/$_dll"
+        done
+        for _dll in "${_dlls[@]}"; do rm -f "$SYS32/.$_dll.cspenguin-new" "$SYS32/.$_dll.cspenguin-old"; done
+        warn "DXVK vblank patch install failed; previous DLLs restored"
+        return
+    fi
+    for _dll in "${_dlls[@]}"; do rm -f "$SYS32/.$_dll.cspenguin-old"; done
     ok "DXVK 3.0.1 vblank patch (idle CPU)"
 }
 
