@@ -56,6 +56,28 @@ if [[ -d "$WINEPREFIX" ]]; then
     ok "prefix found: $WINEPREFIX"
     check "CSP executable" "$CSP_EXE"
     check "dxvk.conf" "$WINEPREFIX/dxvk.conf"
+    # the vblank patch only applies on top of DXVK; with Wine's built-in
+    # d3d11/dxgi there is nothing to report
+    if grep -qx "dxvk" "$WINEPREFIX/winetricks.log" 2>/dev/null; then
+        # keep in sync with DXVK_PATCH_SHA in install.sh
+        declare -A _dxvk_sha=(
+            [dxgi.dll]="953a876208f9f7f19ac03c74f3e6340268e3688408842fb20aaa8f56801310fe"
+            [d3d11.dll]="f2c5a6501c5e7062f49f07326a61126826926e3aee61aa3e5366df59732e4a02"
+            [d3d10core.dll]="fee235f3b906a29ded386aed8e256c4f4452ef76dbba8f10c92c4f151c8daac0"
+        )
+        _dxvk_match=0
+        for _dll in dxgi.dll d3d11.dll d3d10core.dll; do
+            _sum=$(sha256sum "$SYS32/$_dll" 2>/dev/null | cut -d' ' -f1)
+            [[ "$_sum" == "${_dxvk_sha[$_dll]}" ]] && _dxvk_match=$((_dxvk_match + 1))
+        done
+        if [[ $_dxvk_match -eq 3 ]]; then
+            ok "DXVK vblank patch (dxgi/d3d11/d3d10core)"
+        elif [[ $_dxvk_match -eq 0 ]]; then
+            warn "DXVK vblank patch not applied (CSP may use extra CPU while idle)"
+        else
+            warn "DXVK DLL set is MIXED ($_dxvk_match/3 patched); rerun ./install.sh --update"
+        fi
+    fi
     check "dcomp.dll (sys32)" "$SYS32/dcomp.dll"
     check "libwinpthread-1.dll (sys32)" "$SYS32/libwinpthread-1.dll"
     check "mfplat.dll (sys32)" "$SYS32/mfplat.dll"
