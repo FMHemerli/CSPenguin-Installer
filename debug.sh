@@ -56,6 +56,11 @@ if [[ -d "$WINEPREFIX" ]]; then
     ok "prefix found: $WINEPREFIX"
     check "CSP executable" "$CSP_EXE"
     check "dxvk.conf" "$WINEPREFIX/dxvk.conf"
+    if grep -aq 'CSPenguin: WaitForVBlank' "$SYS32/dxgi.dll" 2>/dev/null; then
+        ok "dxgi.dll: DXVK vblank patch"
+    else
+        warn "dxgi.dll: DXVK vblank patch not applied (CSP may use extra CPU while idle)"
+    fi
     check "dcomp.dll (sys32)" "$SYS32/dcomp.dll"
     check "libwinpthread-1.dll (sys32)" "$SYS32/libwinpthread-1.dll"
     check "mfplat.dll (sys32)" "$SYS32/mfplat.dll"
