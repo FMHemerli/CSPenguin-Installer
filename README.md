@@ -83,7 +83,7 @@ This will migrate any old rules previous versions created and apply the current 
 1. Wine (bundled, portable) at `~/.local/share/cspenguin/wine-<VERSION>/`
 2. Wine prefix at `~/.wine-csp`
 3. Corefonts, vcrun2022, and dotnet48 as runtime dependencies, plus a lightweight CJK font (WenQuanYi Micro Hei) for the asset store and brushes.
-4. DXVK + VKD3D
+4. DXVK + VKD3D, with a patched DXVK 3.0.1 `dxgi`/`d3d11`/`d3d10core` set that stops CSP from busy-waiting a CPU core in `WaitForVBlank` (see `patches/dxvk-3.0.1/`)
 5. WebView2 Runtime (standalone installer)
 6. Wine Gecko (the MSHTML/IE engine) installed into the prefix, so any IE-based UI renders instead of showing a blank/grey page
 7. dcomp.dll + libwinpthread-1.dll, a DirectComposition shim + dependency so WebView2 panels render correctly
