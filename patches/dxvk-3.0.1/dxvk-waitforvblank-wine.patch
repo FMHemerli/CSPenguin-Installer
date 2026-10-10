@@ -1,0 +1,58 @@
+diff --git a/src/dxgi/dxgi_output.cpp b/src/dxgi/dxgi_output.cpp
+index 8814f5c..77cb498 100644
+--- a/src/dxgi/dxgi_output.cpp
++++ b/src/dxgi/dxgi_output.cpp
+@@ -20,6 +20,27 @@
+ 
+ namespace dxvk {
+ 
++  /* CSPenguin: on Wine, NtDelayExecution is select()-based and precise enough,
++   * so the busy-wait tail of Sleep::sleepUntil (4x timer granularity plus 1/6
++   * of the duration) only burns CPU. Applications that call WaitForVBlank in a
++   * loop (e.g. CLIP STUDIO PAINT) end up spinning most of each refresh period.
++   * Returns NtDelayExecution when running under Wine, null otherwise. */
++  using CspNtDelayExecutionProc = LONG (NTAPI *) (BOOLEAN, LARGE_INTEGER*);
++
++  static CspNtDelayExecutionProc getWineNtDelayExecution() {
++    static const CspNtDelayExecutionProc s_proc = [] () -> CspNtDelayExecutionProc {
++      HMODULE ntdll = ::GetModuleHandleA("ntdll.dll");
++
++      if (!ntdll || !::GetProcAddress(ntdll, "wine_get_version"))
++        return nullptr;
++
++      return reinterpret_cast<CspNtDelayExecutionProc>(
++        ::GetProcAddress(ntdll, "NtDelayExecution"));
++    } ();
++
++    return s_proc;
++  }
++
+   DxgiOutput::DxgiOutput(
+     const Com<DxgiFactory>& factory,
+     const Com<DxgiAdapter>& adapter,
+@@ -488,7 +509,24 @@ namespace dxvk {
+     m_monitorInfo->ReleaseMonitorData();
+ 
+     // Sleep until the given time point
+-    Sleep::sleepUntil(t1, t2);
++    auto ntDelayExecution = getWineNtDelayExecution();
++
++    if (ntDelayExecution) {
++      static bool s_infoShown = false;
++
++      if (!std::exchange(s_infoShown, true))
++        Logger::info("CSPenguin: WaitForVBlank using plain sleep on Wine");
++
++      if (t2 > t1) {
++        // Relative timeout in 100ns units, negative by NT convention
++        LARGE_INTEGER ticks;
++        ticks.QuadPart = -int64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count() / 100);
++        ntDelayExecution(FALSE, &ticks);
++      }
++    } else {
++      Sleep::sleepUntil(t1, t2);
++    }
++
+     return S_OK;
+   }
+   
