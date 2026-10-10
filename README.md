@@ -95,6 +95,20 @@ This will migrate any old rules previous versions created and apply the current 
 
 > **Note:** `.clip` file thumbnails need to be **enabled in your file manager's preview settings** — on Dolphin/KDE, open _Configure Dolphin → Interface → Previews_ and tick the "Clip Studio Paint File" entry (after running the installer, restart your file manager).
 
+## Patch notes
+
+### DXVK WaitForVBlank fix (idle CPU)
+
+DXVK 3.0.1 emulates `IDXGIOutput::WaitForVBlank` by sleeping until the estimated next refresh, then finishing with a busy-wait sized for Windows timers (4x the 1 ms timer granularity plus 1/6 of the refresh interval). CLIP STUDIO PAINT calls it in a loop on a dedicated thread, so with the primary monitor at 144 Hz, CSP burned about 74% of a CPU core while idle (about 40% at 60 Hz). The rate that matters is the primary monitor's, not the one CSP's window is on.
+
+The fix ships in `patches/dxvk-3.0.1/`: a patched `dxgi.dll`, plus `d3d11.dll` and `d3d10core.dll` rebuilt with the same toolchain (they must match, since DXVK passes C++ objects between them). Under Wine, `WaitForVBlank` does a single `NtDelayExecution` instead of the busy-wait, because Wine's sleep is select()-based and precise enough. Windows behaviour is unchanged.
+
+Result: idle CSP went from about 75% of a core to about 0.8% (CSP 5.0 and 5.1.5). Pen response felt better in use, but stroke latency itself was not measured.
+
+It is applied by `./install.sh`, `./install.sh --update` and `--update-wine`, which copy the set into the prefix's `system32` only when DXVK was installed via winetricks. `debug.sh` reports whether the patch is active. To rebuild, run `patches/dxvk-3.0.1/build.sh` (needs meson, ninja, mingw64-gcc-c++ and glslang; a toolbox works).
+
+Caveats: this pins D3D11/DXGI to DXVK 3.0.1 even if winetricks installs a newer DXVK (d3d9 and the 32-bit DLLs stay at winetricks' version). The curl one-liner fetches assets from the upstream repo, which does not have these files, so that path warns and continues without the patch; use a clone of this repository to get it.
+
 ## Running wine/winetricks manually
 
 The bundled Wine is not in your system PATH. To run wine or winetricks against the CSP prefix:
