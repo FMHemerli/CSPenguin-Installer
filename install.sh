@@ -877,6 +877,46 @@ REGEOF
     fi
 }
 
+# DXVK 3.0.1 emulates IDXGIOutput::WaitForVBlank with a busy-wait tail sized for
+# Windows timers; CSP calls it in a loop, burning ~74% of a core at 144 Hz.
+# Ship a matched dxgi/d3d11/d3d10core set (same toolchain/CRT) that sleeps
+# plainly on Wine. See patches/dxvk-3.0.1/ for the patch and build script.
+_install_dxvk_patch() {
+    local _dxvk_dir="$SCRIPT_DIR/patches/dxvk-3.0.1"
+    local _dlls=(dxgi.dll d3d11.dll d3d10core.dll)
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        ok "DXVK 3.0.1 vblank patch (dry run)"
+        return
+    fi
+
+    # only replace DXVK, never Wine's own d3d11/dxgi
+    if ! grep -qx "dxvk" "$WINEPREFIX/winetricks.log" 2>/dev/null; then
+        warn "DXVK not installed via winetricks; skipping DXVK vblank patch"
+        return
+    fi
+
+    local _dll
+    for _dll in "${_dlls[@]}"; do
+        [[ -f "$_dxvk_dir/$_dll" ]] && continue
+        # any local file missing: take the whole set from remote
+        _dxvk_dir="$DOWNLOAD_DIR/patches/dxvk-3.0.1"
+        for _dll in "${_dlls[@]}"; do
+            _try_fetch_patch "$_dxvk_dir" "patches/dxvk-3.0.1" "$_dll" || {
+                warn "DXVK vblank patch not available; CSP may use extra CPU while idle"
+                return
+            }
+        done
+        break
+    done
+
+    mkdir -p "$SYS32"
+    for _dll in "${_dlls[@]}"; do
+        cp "$_dxvk_dir/$_dll" "$SYS32/$_dll"
+    done
+    ok "DXVK 3.0.1 vblank patch (idle CPU)"
+}
+
 # existing install found and no mode flag given -- ask what to do
 if [[ $UPDATE_ONLY -eq 0 ]] && [[ $UPDATE_WINE -eq 0 ]] && [[ -f "$LAUNCH_SCRIPT" ]]; then
     _found_wine=$(_detect_installed_wine || echo "unknown")
@@ -1022,6 +1062,7 @@ if [[ $UPDATE_WINE -eq 1 ]]; then
         ok "dcomp.dll (login/store panels)"
 
         _install_patches
+        _install_dxvk_patch
 
         _write_launchers
         info "launcher scripts regenerated"
@@ -1079,6 +1120,7 @@ dxvk.numCompilerThreads = 0
 dxvk.maxChunkSize = 16
 DXVKEOF
     ok "registry + dxvk.conf"
+    _install_dxvk_patch
     install_cjk_font_fix
     _bundle_freetype
     _install_gecko
@@ -1397,6 +1439,7 @@ else
     ok "dcomp.dll (login/store panels)"
 
     _install_patches
+    _install_dxvk_patch
     install_cjk_font_fix
 fi
 
